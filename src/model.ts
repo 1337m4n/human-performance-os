@@ -2,7 +2,7 @@
 export type ID = string;
 export type ISOTime = string;
 export type LocalDate = string; // YYYY-MM-DD in recorded timeZone
-export type Evidence = 'task-measured' | 'self-reported' | 'subjective' | 'self-checked' | 'observational';
+export type Evidence = 'task-measured' | 'self-reported' | 'subjective' | 'self-checked' | 'observational' | 'rule-based';
 export type System = 'sleep' | 'fitness' | 'cognition' | 'regulation' | 'nutrition';
 export type CognitiveKind = 'reaction' | 'memory' | 'language';
 export type Rating5 = 1 | 2 | 3 | 4 | 5;
@@ -71,6 +71,8 @@ export interface ExerciseRecord extends DayEntity {
   startedAt: ISOTime | null;
   minutes: number; // >0..1440, finite
   intensity: 'light' | 'moderate' | 'vigorous' | null;
+  talkTest?: 'sing' | 'talk' | 'few' | 'unknown' | null;
+  intensitySource?: 'talk-test-v1' | null;
   strength: StrengthSet[];
   fatigueAfter: SubjectiveValue<Rating5> | null;
   recoveryAfter: SubjectiveValue<Rating5> | null;
@@ -110,7 +112,7 @@ export interface TrainingTask extends Entity {
   contentVersion: string;
   difficulty: 'basic' | 'standard' | 'advanced';
   instructions: string;
-  scoring: 'answer-key' | 'self-check' | 'self-rating';
+  scoring: 'answer-key' | 'self-check' | 'self-rating' | 'text-rules' | 'idea-units';
   itemIds: ID[];
   timing: { readingSeconds?: number; responseDeadlineSeconds?: number; prepareSeconds?: number; expressionSeconds?: number };
 }
@@ -145,13 +147,14 @@ export interface ReactionResult extends ResultBase {
 }
 export interface MemoryResult extends ResultBase {
   kind: 'memory';
-  evidence: 'self-checked';
+  evidence: 'self-checked' | 'rule-based';
+  scoringVersion?: 'idea-units-v1' | null;
   stage: 'immediate' | 'delayed';
   parentResultId: ID | null;
   recallText: string;
   checkedKeyIds: ID[];
   totalKeys: number;
-  checkedBy: 'user';
+  checkedBy: 'user' | 'system';
   repeatedMaterial: boolean;
   reviewedBeforeRecall: boolean;
   scheduledRecallAt: ISOTime | null;
@@ -160,7 +163,7 @@ export interface MemoryResult extends ResultBase {
 }
 export interface LanguageResult extends ResultBase {
   kind: 'language';
-  evidence: 'subjective'; // duration itself is task-measured, not language ability
+  evidence: 'subjective' | 'rule-based'; // fixed text checks do not measure semantic correctness or vocal fluency
   promptId: ID;
   topicText?: string | null;
   structure: 'conclusion-evidence-action';
@@ -168,7 +171,8 @@ export interface LanguageResult extends ResultBase {
   expressionSeconds: number;
   text: string | null;
   audioAssetId: ID | null;
-  selfRating: { structure: Rating5 | null; logic: Rating5 | null; fluency: Rating5 | null };
+  selfRating: { structure: Rating5 | null; logic: Rating5 | null; fluency: Rating5 | null } | null;
+  autoScore?: { ruleVersion: 'text-rules-v1'; input: 'typed' | 'transcript'; structure: 0 | Rating5 | null; logic: 0 | Rating5 | null; fluency: 0 | Rating5 | null } | null;
   nextImprovement: string | null;
 }
 export type TrainingResult = ReactionResult | MemoryResult | LanguageResult;
