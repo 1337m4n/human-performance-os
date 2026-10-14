@@ -85,10 +85,11 @@ export const materials=[material,
  {id:'garden-v1',text:'云桥街道准备在明年三月建立一处共享花园，选址在文化中心南侧的空地。项目预算为十二万元，其中七万元用于整理土壤和步道，三万元购买种子与工具，两万元留作后续维护。居民报名将在二月一日开始，每户可以申请一个种植区域，首次分配最多三十户。花园每周三下午由志愿者进行公共维护，其他时间由各户照顾自己的区域。入口旁会设置工具柜，借用工具需要登记归还时间。街道将在首季结束后收集居民反馈，再决定是否扩大面积。',keys:['地点：文化中心南侧空地','时间：明年3月建立，2月1日报名','预算：12万元，土壤步道7万、种子工具3万、维护2万','分配：每户一个区域，首次最多30户','维护：每周三下午公共维护，其余各户照顾','工具与后续：借用登记归还时间，首季反馈后决定扩建']}
 ];
 export const timerElapsed=(elapsedMs,startedAt,now,targetMs)=>Math.min(targetMs,elapsedMs+(startedAt==null?0:Math.max(0,now-startedAt)));
-export const memoryScoringVersion='idea-units-v1';
+export const memoryScoringVersion='idea-units-v2';
 export const memoryEvidence=r=>r?.memoryScoringVersion?'系统信息单元评分':'历史自行核对';
 export const talkIntensity=value=>({sing:'light',talk:'moderate',few:'vigorous',unknown:null})[value]??null;
-export function memoryScore(recall,materialId) {
+export function memoryScore(recall,materialId,version=memoryScoringVersion) {
+ if(!['idea-units-v1','idea-units-v2'].includes(version))throw new Error('记忆评分规则版本无效。');
  const material=[...materials,legacyMaterial].find(m=>m.id===materialId),text=(recall||'').normalize('NFKC').replace(/\s+/g,'');
  const park=[[/清河社区/,/公园/],[/11月|十一月/,/10月25日|十月二十五日|10[/.]25/],[/(?<![\d一二三四五六七八九十百千])(?:80|八十)万/],[/(?:照明|灯光).{0,35}(?:步道|道路).{0,35}(?:座椅|椅子)/],[/东门(?:保持|照常|仍然|继续|一直|正常)?(?:开放|开着)/,/西门(?:暂时|暂|保持|会|将|已|仍)?(?:关闭|封闭|不开放)/],[/社区服务中心/,/每周五|周五|星期五/,/更新|进度|公布/]];
  const rules={
@@ -97,7 +98,13 @@ export function memoryScore(recall,materialId) {
   'garden-v1':[[/文化中心/,/南侧|南边|南面/],[/明年.{0,3}(?:3月|三月)/,/2月1日|二月一日|2[/.]1(?:[^\d]|$)/],[/(?<![\d一二三四五六七八九十百千])(?:12|十二)万/,/(?:7|七)万[^，,。；;]{0,12}(?:土壤|步道)|(?:土壤|步道)[^，,。；;]{0,12}(?:7|七)万/,/(?:3|三)万[^，,。；;]{0,12}(?:种子|工具)|(?:种子|工具)[^，,。；;]{0,12}(?:3|三)万/,/(?:2|两|二)万[^，,。；;]{0,12}维护|维护[^，,。；;]{0,12}(?:2|两|二)万/],[/每户.{0,8}(?:1|一)个/,/(?<![\d一二三四五六七八九十百千])(?:30|三十)户/],[/(?:周三|星期三|礼拜三).{0,4}下午/,/公共维护|志愿者.{0,10}维护/,/各户|住户|每户/],[/工具/,/登记.{0,8}归还|归还.{0,8}登记/,/首季|第一季/,/反馈/,/扩建|扩大/]]
  }[materialId];
  if(!material||!rules)throw new Error('缺少这份材料的系统评分规则。');
+ if(version==='idea-units-v2'&&materialId==='garden-v1')rules[2]=[
+  /(?<![\d一二三四五六七八九十百千])(?:12|十二)万/,
+  /(?<![\d一二三四五六七八九十百千])(?:7|七)万[^，,。；;]{0,12}(?:土壤|步道)|(?:土壤|步道)[^，,。；;]{0,12}(?<![\d一二三四五六七八九十百千])(?:7|七)万/,
+  /(?<![\d一二三四五六七八九十百千])(?:3|三)万[^，,。；;]{0,12}(?:种子|工具)|(?:种子|工具)[^，,。；;]{0,12}(?<![\d一二三四五六七八九十百千])(?:3|三)万/,
+  /(?<![\d一二三四五六七八九十百千])(?:2|两|二)万[^，,。；;]{0,12}维护|维护[^，,。；;]{0,12}(?<![\d一二三四五六七八九十百千])(?:2|两|二)万/
+ ];
  // ponytail: 固定材料的关键词/关系匹配只评已识别事实，不做全文语义理解；新增材料必须随附规则和回归样例。
  const units=rules.map((patterns,i)=>{const matches=patterns.map(p=>text.match(p));const passed=matches.every(m=>m&&!/(?:不是|并非|没有)\s*$/.test(text.slice(Math.max(0,m.index-4),m.index)));return {label:material.keys[i],passed,matched:matches.filter(Boolean).map(m=>m[0])};});
- return {version:memoryScoringVersion,units,checked:units.map(u=>u.passed),hits:units.filter(u=>u.passed).length};
+ return {version,units,checked:units.map(u=>u.passed),hits:units.filter(u=>u.passed).length};
 }

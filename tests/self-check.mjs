@@ -150,3 +150,7 @@ const talkSpace=structuredClone(personal);talkSpace.records=[{id:'talk-test',typ
 const talkCopy=fromBundle(toBundle(normalizeSpace(talkSpace,'personal',DEMO_DAY)),'personal');assert.equal(talkCopy.records[0].talkTest,'talk');
 talkSpace.records[0].intensity='vigorous';assert.throws(()=>normalizeSpace(talkSpace,'personal',DEMO_DAY));
 console.log('通过：文本规则评分、信息单元评分、反向事实/否定防误判、强度自动判定、来源隔离与防伪造备份。');
+
+assert.equal(memoryScore('预算12万元，土壤与步道17万元，种子工具3万元，维护2万元。','garden-v1').checked[2],false);
+assert.equal(memoryScore(materials[0].text,materials[0].id,'idea-units-v1').hits,6);
+const previousSystem=structuredClone(autoBundle);previousSystem.results.find(r=>r.id==='auto-memory').scoringVersion='idea-units-v1';assert.equal(fromBundle(previousSystem,'demo').records.find(r=>r.id==='auto-memory').memoryScoringVersion,'idea-units-v1');

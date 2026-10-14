@@ -148,7 +148,7 @@ export interface ReactionResult extends ResultBase {
 export interface MemoryResult extends ResultBase {
   kind: 'memory';
   evidence: 'self-checked' | 'rule-based';
-  scoringVersion?: 'idea-units-v1' | null;
+  scoringVersion?: 'idea-units-v1' | 'idea-units-v2' | null;
   stage: 'immediate' | 'delayed';
   parentResultId: ID | null;
   recallText: string;
