@@ -12,6 +12,8 @@
 
 ## 直接使用
 
+本地交付包包含已构建的 dist；GitHub 源码仓库不提交 dist，从仓库下载或克隆后需先运行下方的 npm ci 和 npm run build。
+
 macOS 双击本目录的 `启动.command`。它使用 Python 3 启动已构建的静态文件，并打开 [本地入口](http://127.0.0.1:5183/)。关闭终端或按 Control+C 结束服务。已确认当前电脑有 Python 3。
 
 也可以在本目录运行：
