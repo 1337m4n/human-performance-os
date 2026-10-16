@@ -3,6 +3,10 @@ import {normalizeSpace} from './model.js';
 const legacyPrefix='hp-os:prototype:v1:';
 // ponytail: 单用户小型历史采用一份事务快照；历史明显变大时迁移到逐实体store及索引。
 const stores=['workspace','audio','drafts','backups'];
+const draftCopies=new Map();
+const draftQueues=new Map();
+const matchesDraft=(space,key,data)=>JSON.stringify(data??null)===(draftCopies.get(space+':'+key)??'null');
+const draftConflict=()=>Object.assign(new Error('另一页面已修改同一草稿，当前输入仍保留。请先复制当前输入，再刷新读取最新草稿。'),{name:'ConflictError'});
 export function openDatabase(space) {
  return new Promise((resolve,reject)=>{
   const req=indexedDB.open('hp-os-local-'+space,1);
@@ -38,6 +42,7 @@ export async function loadSpace(space) {
  }catch(e){e.dataRevision=stored?.revision||0;throw e;}
 }
 export async function writeSpace(space,input,options={}) {
+ if(options.deleteDraft)await draftQueues.get(space+':'+options.deleteDraft)?.catch(()=>{});
  const data=normalizeSpace(input,space,space==='demo'?DEMO_DAY:today(input.settings.timeZone));
  const legacyRaw=options.backup||options.clear?localStorage.getItem(legacyPrefix+space):null;
  const legacyAudio=legacyRaw?await readLegacyAudio(space):[];
@@ -58,17 +63,34 @@ export async function writeSpace(space,input,options={}) {
     for(const asset of options.audio||options.replaceAudio||[])audio.put(asset);
     workspace.put({id:'current',data});result(data);
    };
-   if(options.backup&&current) {const req=audio.getAll();req.onsuccess=safe(()=>{backups.put({id:'last',createdAt:new Date().toISOString(),reason:'before-restore',data:current,audio:[...req.result,...legacyAudio],...(legacyRaw?{raw:legacyRaw}:{})});save();});}
-   else {if(options.backup)backups.put({id:'last',createdAt:new Date().toISOString(),...(typeof options.backup==='object'?options.backup:{data:normalizeSpace({...seed('personal'),source:space},space),audio:legacyAudio,raw:legacyRaw,reason:'protected-legacy'})});save();}
+   const persist=()=>{if(options.backup&&current) {const req=audio.getAll();req.onsuccess=safe(()=>{backups.put({id:'last',createdAt:new Date().toISOString(),reason:'before-restore',data:current,audio:[...req.result,...legacyAudio],...(legacyRaw?{raw:legacyRaw}:{})});save();});}
+   else {if(options.backup)backups.put({id:'last',createdAt:new Date().toISOString(),...(typeof options.backup==='object'?options.backup:{data:normalizeSpace({...seed('personal'),source:space},space),audio:legacyAudio,raw:legacyRaw,reason:'protected-legacy'})});save();}};
+   if(options.deleteDraft){const req=tx.objectStore('drafts').get(options.deleteDraft);req.onsuccess=safe(()=>{if(!matchesDraft(space,options.deleteDraft,req.result?.data)){abort(draftConflict());return;}persist();});}else persist();
   });
  });
+ if(options.deleteDraft)draftCopies.set(space+':'+options.deleteDraft,'null');
  if((options.clear||options.repair)&&legacyRaw)try{localStorage.removeItem(legacyPrefix+space);await clearLegacyAudio(space);}catch(e){e.savedData=saved;throw e;}
  return saved;
 }
 export const listAudio=space=>transaction(space,'readonly',(tx,result)=>{const req=tx.objectStore('audio').getAll();req.onsuccess=()=>result(req.result);});
 export const getAudio=(space,id)=>transaction(space,'readonly',(tx,result)=>{const req=tx.objectStore('audio').get(id);req.onsuccess=()=>result(req.result);});
 export const getSnapshot=space=>transaction(space,'readonly',(tx,result)=>{const req=tx.objectStore('backups').get('last');req.onsuccess=()=>result(req.result);});
-export const draftAction=(space,action,key,data)=>transaction(space,action==='get'?'readonly':'readwrite',(tx,result)=>{const store=tx.objectStore('drafts'),req=action==='get'?store.get(key):action==='delete'?store.delete(key):store.put({id:key,data});req.onsuccess=()=>result(req.result?.data);});
+export function draftAction(space,action,key,data) {
+ const id=space+':'+key,previous=draftQueues.get(id)||Promise.resolve();
+ const operation=previous.catch(()=>{}).then(()=>changeDraft(space,action,key,data));draftQueues.set(id,operation);
+ return operation.finally(()=>{if(draftQueues.get(id)===operation)draftQueues.delete(id);});
+}
+async function changeDraft(space,action,key,data) {
+ if(!['get','put','delete'].includes(action))throw new Error('草稿操作无效。');
+ let copy;const value=await transaction(space,action==='get'?'readonly':'readwrite',(tx,result,abort)=>{
+  const store=tx.objectStore('drafts'),req=store.get(key);req.onsuccess=()=>{try{const current=req.result?.data??null;
+   if(action==='get'){copy=JSON.stringify(current);result(current??undefined);return;}
+   if(!matchesDraft(space,key,current)){abort(draftConflict());return;}
+   const write=action==='delete'?store.delete(key):store.put({id:key,data});write.onsuccess=()=>{copy=JSON.stringify(action==='delete'?null:data??null);};
+  }catch(e){abort(e);}};
+ });
+ draftCopies.set(space+':'+key,copy);return value;
+}
 export async function protectedRaw(space) {const data=await readWorkspace(space);return localStorage.getItem(legacyPrefix+space)||JSON.stringify(data,null,2);}
 function legacyDB() {
  return new Promise((resolve,reject)=>{const req=indexedDB.open('hp-os-audio-v1',1);req.onupgradeneeded=()=>req.result.createObjectStore('audio',{keyPath:'id'});req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});

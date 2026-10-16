@@ -158,6 +158,7 @@ export interface MemoryResult extends ResultBase {
   repeatedMaterial: boolean;
   reviewedBeforeRecall: boolean;
   scheduledRecallAt: ISOTime | null;
+  scheduledRecallId?: ID | null; // Retains delayed-task links and draft keys through a backup round trip.
   scheduledFromAt: ISOTime | null; // Retains the exact original scheduling time through migration.
   actualDelaySeconds: number | null;
 }

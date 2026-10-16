@@ -1,5 +1,5 @@
 import {judgmentBank} from './training-bank.js';
-import {defaults,seed,today,weekStart,shiftDay,dailyTasks,sleepMinutes,reactionSummary,median,validResult,topics,languageScore,memoryScore,memoryScoringVersion,talkIntensity} from './data.js';
+import {defaults,seed,today,weekStart,shiftDay,dailyTasks,sleepMinutes,reactionItems,reactionSummary,median,validResult,topics,languageScore,memoryScore,memoryScoringVersion,talkIntensity} from './data.js';
 
 export const timeZones=['Asia/Shanghai','UTC','Asia/Tokyo','Europe/London','America/New_York'];
 const resultKinds=['reaction','memory','language'];
@@ -9,6 +9,7 @@ const rating=(value,at)=>value==null?null:{value,evidence:'subjective',recordedA
 const bare=r=>({id:r.id,createdAt:r.createdAt,updatedAt:r.updatedAt,revision:r.revision,deletedAt:r.deletedAt??null,source:r.source});
 const dayBase=r=>({...bare(r),localDate:r.date,timeZone:r.timeZone});
 const stamp=(r,source)=>({...r,id:r.id||crypto.randomUUID(),createdAt:r.createdAt||iso(),updatedAt:r.updatedAt||r.createdAt||iso(),revision:r.revision||1,deletedAt:r.deletedAt??null,source});
+const taskDefinitionKey=r=>JSON.stringify([r.type,r.protocol,r.contentVersion,r.difficulty,r.type==='language'?[r.targetSeconds||90,r.scoringVersion||'self-rating',r.scoreInput||'unknown']:r.type==='memory'?r.memoryScoringVersion||'self-check':'']);
 export function localTimeISO(date,time,timeZone) {
  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!/^\d{2}:\d{2}$/.test(time))throw new Error('日期或时间格式无效。');
  const target=Date.parse(date+'T'+time+':00Z');
@@ -21,7 +22,7 @@ export function localTimeISO(date,time,timeZone) {
  return new Date(candidates[0]).toISOString();
 }
 export function comparisonKey(r) {
- return [r.type,r.protocol,r.difficulty||'standard',r.device?.input||'unknown',r.device?.platform||'unknown',r.type==='memory'?r.material+':'+r.stage:r.contentVersion||r.protocol,r.type==='language'?[r.targetSeconds||90,r.scoringVersion||'self-rating',r.scoreInput||'unknown'].join(':'):r.type==='memory'?r.memoryScoringVersion||'self-check':''].join('|');
+ return JSON.stringify([r.type,r.protocol,r.difficulty||'standard',r.device?.input||'unknown',r.device?.platform||'unknown',r.type==='memory'?[r.material,r.stage]:r.contentVersion||r.protocol,r.type==='language'?[r.targetSeconds||90,r.scoringVersion||'self-rating',r.scoreInput||'unknown']:r.type==='memory'?r.memoryScoringVersion||'self-check':'']);
 }
 export function comparableRecords(records,type) {
  const rows=records.filter(r=>r.type===type&&validResult(r)&&(type!=='language'||r.structure!=null));
@@ -64,7 +65,7 @@ export function windowSummary(records,start,end) {
 export function goalsSnapshot(s) {
  return {priorities:s.goals,dailyTrainingMinutes:s.budget,sleepMinutes:s.sleepGoal,targetWakeTime:s.wakeTarget,weeklyModerateMinutes:s.moderateGoal,weeklyStrengthDays:s.strengthGoal,cognitiveSessionsPerWeek:s.budget>=5?s.trainingWeekdays.length:0,trainingWeekdays:s.trainingWeekdays};
 }
-export function normalizeSpace(input,source,day=today(input.settings?.timeZone||'Asia/Shanghai')) {
+export function normalizeSpace(input,source,day=today(input?.settings?.timeZone||'Asia/Shanghai')) {
  if(!input||![1,2].includes(input.schemaVersion)||!Array.isArray(input.records)||!input.settings)throw new Error('不支持的数据版本，原始数据已保留。');
  if(input.source!==source||input.records.some(r=>r.source&&r.source!==source))throw new Error('数据空间不匹配，不能混入模拟或其他空间的记录。');
  const ds=structuredClone(input);ds.schemaVersion=2;ds.source=source;ds.revision=ds.revision||0;
@@ -77,11 +78,12 @@ export function normalizeSpace(input,source,day=today(input.settings?.timeZone||
   if(r.type==='language'){for(const key of ['structure','logic','fluency','audioId','note'])record[key]=nullable(r[key]);}
   if(r.type==='reaction')record.summary=reactionSummary(r.trials);
   if(r.type==='memory') {record.checked=Array.isArray(r.checked)?r.checked:Array(6).fill(false);record.hits=record.checked.filter(Boolean).length;}
-  if(resultKinds.includes(r.type)) {record.protocol=r.protocol||({reaction:'judge-v1',memory:'recall-v1',language:'speak-v1'})[r.type];record.contentVersion=r.contentVersion||r.material||record.protocol;record.difficulty=r.difficulty||'standard';record.device=r.device||{input:source==='demo'?'mouse':'unknown',platform:'unknown'};record.startedAt=r.startedAt??(source==='demo'?r.createdAt:null);record.endedAt=r.endedAt??(source==='demo'?r.createdAt:null);record.seconds=r.seconds??null;record.legacyConditions=source!=='demo'&&(!record.startedAt||!record.endedAt||record.device.input==='unknown');if(record.legacyConditions){record.excluded=true;record.exclusionReason='旧版缺少计时或输入设备条件，原始结果保留，暂不参与可比趋势。';}record.purpose=r.purpose||'regular';const taskKey=[r.type,record.protocol,record.contentVersion,record.difficulty,r.type==='language'?[record.targetSeconds||90,r.scoringVersion||'self-rating',r.scoreInput||'unknown'].join(':'):r.type==='memory'?r.memoryScoringVersion||'self-check':''].join(':');record.taskId=taskIds.get(taskKey)||r.taskId||crypto.randomUUID();if(taskKeys.has(record.taskId)&&taskKeys.get(record.taskId)!==taskKey)throw new Error('同一任务ID不能用于不同协议、材料、难度或目标时长。');taskIds.set(taskKey,record.taskId);taskKeys.set(record.taskId,taskKey);}
+  if(resultKinds.includes(r.type)) {record.protocol=r.protocol||({reaction:'judge-v1',memory:'recall-v1',language:'speak-v1'})[r.type];record.contentVersion=r.contentVersion||r.material||record.protocol;record.difficulty=r.difficulty||'standard';record.device=r.device||{input:source==='demo'?'mouse':'unknown',platform:'unknown'};record.startedAt=r.startedAt??(source==='demo'?r.createdAt:null);record.endedAt=r.endedAt??(source==='demo'?r.createdAt:null);record.seconds=r.seconds??null;record.legacyConditions=source!=='demo'&&(!record.startedAt||!record.endedAt||record.device.input==='unknown');if(record.legacyConditions){record.excluded=true;record.exclusionReason='旧版缺少计时或输入设备条件，原始结果保留，暂不参与可比趋势。';}record.purpose=r.purpose||'regular';const taskKey=taskDefinitionKey(record);record.taskId=taskIds.get(taskKey)||r.taskId||crypto.randomUUID();if(taskKeys.has(record.taskId)&&taskKeys.get(record.taskId)!==taskKey)throw new Error('同一任务ID不能用于不同协议、材料、难度或目标时长。');taskIds.set(taskKey,record.taskId);taskKeys.set(record.taskId,taskKey);}
   return record;
  });
- for(const key of ['reviews','cycles','plans','planItems','due'])ds[key]=ds[key]||[];
- ds.planDays=ds.planDays||{};ds.reviews=ds.reviews.map(r=>stamp({...r,timeZone:r.timeZone||ds.settings.timeZone,sourceIds:r.sourceIds||[],summarySnapshot:r.summarySnapshot||{},knownConfounderIds:r.knownConfounderIds||[]},source));ds.cycles=ds.cycles.map(r=>stamp(r,source));
+ for(const key of ['reviews','cycles','plans','planItems','due']){ds[key]??=[];if(!Array.isArray(ds[key]))throw new Error('数据集合无效：'+key);}
+ ds.planDays=ds.planDays||{};ds.reviews=ds.reviews.map(r=>stamp({...r,timeZone:r.timeZone||ds.settings.timeZone,sourceIds:r.sourceIds??[],summarySnapshot:r.summarySnapshot??{},knownConfounderIds:r.knownConfounderIds??[]},source));ds.cycles=ds.cycles.map(r=>stamp(r,source));
+ const recalledParents=new Set(ds.records.filter(r=>r.type==='memory'&&r.stage==='delayed').map(r=>r.parentId));ds.due=ds.due.map(d=>({...d,completed:recalledParents.has(d.parentId)}));
  if(ds.settings.onboarded) {
   const start=weekStart(day),goals=goalsSnapshot(ds.settings);
   let plan=ds.plans.filter(p=>p.weekStart===start).at(-1);
@@ -96,22 +98,28 @@ export function normalizeSpace(input,source,day=today(input.settings?.timeZone||
 }
 export function validateSpace(ds) {
  const fail=message=>{throw new Error(message);},num=(v,min,max)=>Number.isFinite(v)&&v>=min&&v<=max,optional=(v,min,max)=>v==null||num(v,min,max),date=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&Number.isFinite(Date.parse(v))&&shiftDay(v,0)===v;
+ const text=v=>v==null||typeof v==='string',strings=v=>Array.isArray(v)&&v.every(x=>typeof x==='string'&&x.length>0),object=v=>v!=null&&typeof v==='object'&&!Array.isArray(v);
+ const timing=r=>num(r.seconds,0,86400)&&num(r.targetSeconds??r.seconds,1,86400)&&r.seconds<=(r.targetSeconds??r.seconds)&&['completed','ended-early'].includes(r.status)&&(r.status==='completed'?r.seconds===(r.targetSeconds??r.seconds):r.seconds<(r.targetSeconds??r.seconds));
+ if(!Number.isInteger(ds.revision)||ds.revision<0)fail('数据修订号无效。');
  const s=ds.settings;
  if(!s||!Array.isArray(s.goals)||s.goals.length<1||s.goals.length>2||s.goals.some(g=>!['processing','memory','expression','sleep','fitness','calm'].includes(g)))fail('主要目标需为1至2项。');
  try {new Intl.DateTimeFormat('en',{timeZone:s.timeZone});}catch {fail('时区无效。');}
  if(!num(s.budget,3,60)||!num(s.sleepGoal,240,720)||!num(s.moderateGoal,0,1500)||!num(s.strengthGoal,0,7)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(s.wakeTarget))fail('个人目标超出允许范围。');
  if(!['light','dark','system'].includes(s.theme)||typeof s.reducedMotion!=='boolean'||!Array.isArray(s.trainingWeekdays)||s.trainingWeekdays.some(d=>!Number.isInteger(d)||d<1||d>7)||new Set(s.trainingWeekdays).size!==s.trainingWeekdays.length)fail('显示或训练日设置无效。');
+ if(!text(s.nickname)||new Set(s.goals).size!==s.goals.length)fail('称呼或主要目标无效。');
  const ids=new Set();
  for(const r of ds.records) {
   if(typeof r.id!=='string'||!r.id||ids.has(r.id))fail('记录ID缺失或重复。');ids.add(r.id);
   if(!['sleep','fitness','regulation','nutrition','state','event',...resultKinds,'focus'].includes(r.type)||!date(r.date))fail('记录类别或日期无效。');
   try {new Intl.DateTimeFormat('en',{timeZone:r.timeZone});}catch {fail('记录时区无效。');}
   if(!Number.isFinite(Date.parse(r.createdAt)))fail('记录时间无效。');
+  if(['note','text','recall','topic','next','goal','practice','exercise','caffeineType','feeling','tag','audioId','exclusionReason','protocol','contentVersion','material','promptId'].some(k=>!text(r[k])))fail('记录中的文字或标识必须为文本。');
+  if(['excluded','repeated','reviewedBeforeRecall','reviewedBeforeDelayed','longSleepConfirmed','annotateCharts','natural'].some(k=>r[k]!=null&&typeof r[k]!=='boolean'))fail('记录状态标记无效。');
   if(r.type==='sleep') {sleepMinutes(r.sleepAt,r.wakeAt,r.awakeMinutes,r.longSleepConfirmed);if(todayAt(r.wakeAt,r.timeZone)!==r.date)fail('睡眠需关联起床日期。');if(!optional(r.quality,1,5)||!optional(r.wakeEnergy,1,5))fail('睡眠评分需为1至5。');}
   if(r.type==='fitness'&&(!['walk','run','cycle','strength','other'].includes(r.activity)||!num(r.minutes,1,1440)||!['light','moderate','vigorous',null].includes(r.intensity)||!optional(r.sets,1,100)||!optional(r.fatigue,1,5)||!optional(r.recovery,1,5)))fail('运动记录超出允许范围。');
   if(r.type==='fitness'&&r.strengthItems!=null&&(!Array.isArray(r.strengthItems)||r.strengthItems.some(x=>!x||typeof x.exercise!=='string'||!x.exercise.trim()||!Number.isInteger(x.sets)||!num(x.sets,1,100)||x.repetitions!=null&&(!Number.isInteger(x.repetitions)||!num(x.repetitions,1,Infinity))||!optional(x.loadKg,0,Infinity))))fail('每项力量训练的项目、组数、次数或重量无效。');
   if(r.type==='regulation'&&(!optional(r.stress,0,10)||!optional(r.tension,0,10)||!optional(r.alertness,0,10)||!optional(r.before,0,10)||!optional(r.after,0,10)))fail('调节评分需为0至10。');
-  if(r.type==='regulation'&&(r.practice||r.practiceKind!=null)&&(!['breathing','mindfulness','relaxation'].includes(r.practiceKind||'breathing')||!num(r.seconds,0,86400)||!num(r.targetSeconds??r.seconds,1,86400)||r.seconds>(r.targetSeconds??r.seconds)||!['completed','ended-early'].includes(r.status)||r.status==='completed'&&r.seconds!==(r.targetSeconds??r.seconds)||r.status==='ended-early'&&r.seconds===(r.targetSeconds??r.seconds)||r.startedAt!=null&&!Number.isFinite(Date.parse(r.startedAt))))fail('调节练习的实际时长、目标时长、状态或开始时间无效。');
+  if(r.type==='regulation'&&(r.practice||r.practiceKind!=null)&&(!['breathing','mindfulness','relaxation'].includes(r.practiceKind||'breathing')||!timing(r)||r.startedAt!=null&&!Number.isFinite(Date.parse(r.startedAt))))fail('调节练习的实际时长、目标时长、状态或开始时间无效。');
   if(r.type==='nutrition'&&(!optional(r.water,0,20000)||!optional(r.caffeineMg,0,3000)||!optional(r.energy,1,5)||r.caffeineType&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(r.caffeineTime)))fail('饮食数值或咖啡因时间无效。');
   if(r.type==='nutrition'&&r.caffeineEntries!=null){const entries=r.caffeineEntries;if(!Array.isArray(entries)||new Set(entries.map(x=>x?.id)).size!==entries.length||entries.some(x=>!x||typeof x.id!=='string'||!x.id||typeof x.type!=='string'||!x.type.trim()||!Number.isFinite(Date.parse(x.consumedAt))||todayAt(x.consumedAt,r.timeZone)!==r.date||!optional(x.milligrams,0,3000)))fail('每次咖啡因摄入的ID、饮品、日期时间或毫克数无效。');}
   if(r.type==='nutrition'&&r.energyEntries!=null&&(!Array.isArray(r.energyEntries)||r.energyEntries.some(x=>!x||!['morning','afternoon','evening'].includes(x.period)||!num(x.rating?.value,1,5))))fail('每条历史精力记录的时段或评分无效。');
@@ -127,13 +135,14 @@ export function validateSpace(ds) {
   if(r.type==='memory'&&r.memoryScoringVersion!=null){const score=memoryScore(r.recall,r.material,r.memoryScoringVersion);if(JSON.stringify(r.checked)!==JSON.stringify(score.checked))fail('记忆系统评分与回忆文字不一致。');}
   if(r.type==='fitness'&&r.intensitySource!=null&&(r.intensitySource!=='talk-test-v1'||!['sing','talk','few','unknown'].includes(r.talkTest)||r.intensity!==talkIntensity(r.talkTest)))fail('运动强度与说话情况不一致。');
   if(r.type==='language'&&r.scoringVersion!=null){if(!['text-rules-v1','text-rules-v2'].includes(r.scoringVersion)||!['typed','transcript'].includes(r.scoreInput)||typeof r.text!=='string'||r.text.length>5000)fail('表达评分规则、输入来源或文字无效。');const score=languageScore(r.text,r.topic,r.scoringVersion);if(['structure','logic','fluency'].some(k=>r[k]!==score.dimensions[k].score))fail('系统评分与表达文字或评分规则不一致。');}
-  if(r.type==='focus'&&(!num(r.seconds,0,86400)||!num(r.targetSeconds,1,86400)||!num(r.distractions,0,10000)))fail('专注计时记录无效。');
+  if(r.type==='focus'&&(!num(r.targetSeconds,1,86400)||!timing(r)||!Number.isInteger(r.distractions)||!num(r.distractions,0,10000)||!optional(r.pausedSeconds,0,Infinity)||r.startedAt!=null&&!Number.isFinite(Date.parse(r.startedAt))||r.endedAt!=null&&!Number.isFinite(Date.parse(r.endedAt))||r.startedAt&&r.endedAt&&Date.parse(r.endedAt)<Date.parse(r.startedAt)))fail('专注实际时长、目标、暂停、状态或起止时间无效。');
  }
  const recordsById=new Map(ds.records.map(r=>[r.id,r])),dueIds=new Set(),dueParents=new Set();
  for(const d of ds.due){const parent=recordsById.get(d.parentId);if(typeof d.id!=='string'||!d.id||dueIds.has(d.id)||dueParents.has(d.parentId)||!Number.isFinite(Date.parse(d.dueAt))||!Number.isFinite(Date.parse(d.readAt))||Date.parse(d.dueAt)<=Date.parse(d.readAt)||!parent&&ds.source!=='demo'||parent&&(parent.type!=='memory'||parent.stage!=='immediate'||parent.material!==d.material))fail('延迟回忆需唯一关联同一材料的即时会话，且到期时间须晚于阅读时间。');dueIds.add(d.id);dueParents.add(d.parentId);}
- for(const r of ds.records.filter(r=>r.type==='memory'&&r.stage==='delayed')){const parent=recordsById.get(r.parentId);if(!parent&&ds.source!=='demo'||parent&&(parent.type!=='memory'||parent.stage!=='immediate'||parent.material!==r.material||r.endedAt&&parent.endedAt&&Date.parse(r.endedAt)<Date.parse(parent.endedAt))||!optional(r.delayMinutes,0,Infinity))fail('延迟回忆的原会话、材料或实际间隔无效。');}
- for(const c of ds.cycles)if(!date(c.start)||!date(c.end)||c.end<c.start)fail('观察周期的开始或结束日期无效。');
- for(const r of ds.reviews)if(!date(r.weekStart)||!date(r.weekEnd)||r.weekEnd<r.weekStart)fail('复盘的开始或结束日期无效。');
+ const delayedParents=new Set();for(const r of ds.records.filter(r=>r.type==='memory'&&r.stage==='delayed')){const parent=recordsById.get(r.parentId);if(delayedParents.has(r.parentId)||!parent&&ds.source!=='demo'||parent&&(parent.type!=='memory'||parent.stage!=='immediate'||parent.material!==r.material||r.endedAt&&parent.endedAt&&Date.parse(r.endedAt)<Date.parse(parent.endedAt))||!optional(r.delayMinutes,0,Infinity))fail('延迟回忆的原会话、材料或实际间隔无效，且同一会话不能重复回忆。');delayedParents.add(r.parentId);}
+ for(const [kind,rows]of Object.entries({reviews:ds.reviews,cycles:ds.cycles,plans:ds.plans,planItems:ds.planItems})){const seen=new Set();for(const r of rows){if(!r||typeof r.id!=='string'||!r.id||seen.has(r.id))fail('实体ID缺失或重复：'+kind);seen.add(r.id);}}
+ for(const c of ds.cycles){if(!date(c.start)||!date(c.end)||c.end!==shiftDay(c.start,13))fail('观察周期需为完整14天，开始或结束日期无效。');if(typeof c.change!=='string'||!text(c.reflection)||c.eventIds!=null&&!strings(c.eventIds)||c.protocolVersions!=null&&!strings(c.protocolVersions))fail('观察周期的文字或引用无效。');if(c.comparisonWindow&&['beforeStart','beforeEnd','afterStart','afterEnd'].some((k,i)=>c.comparisonWindow[k]!==[shiftDay(c.start,-14),shiftDay(c.start,-1),c.start,c.end][i]))fail('观察窗口须与前后14天一致。');}
+ const reviewWeeks=new Set();for(const r of ds.reviews){if(!date(r.weekStart)||!date(r.weekEnd)||r.weekStart!==weekStart(r.weekStart)||r.weekEnd!==shiftDay(r.weekStart,6)||reviewWeeks.has(r.weekStart))fail('复盘需对应唯一完整自然周。');reviewWeeks.add(r.weekStart);if(!strings(r.sourceIds)||!strings(r.knownConfounderIds)||!text(r.reflection)||!text(r.adjustment)||!object(r.summarySnapshot)||Object.values(r.summarySnapshot).some(m=>!object(m)||!optional(m.value,-Infinity,Infinity)||typeof m.unit!=='string'||!Number.isInteger(m.n)||m.n<0||!['task-measured','self-reported','subjective','self-checked','observational','rule-based'].includes(m.evidence)))fail('复盘快照的指标、文字或来源引用无效。');}
  for(const p of ds.plans)if(!date(p.weekStart)||!date(p.startsOn)||p.endsOn!=null&&(!date(p.endsOn)||p.endsOn<p.startsOn))fail('计划日期无效。');
  for(const p of ds.planItems)if(!date(p.localDate))fail('计划项目日期无效。');
  return ds;
@@ -142,14 +151,14 @@ export const todayAt=(at,timeZone)=>new Intl.DateTimeFormat('en-CA',{timeZone,ye
 export function toBundle(ds,audio=[]) {
  const s=ds.settings,tasks=[],taskMap=new Map();
  const taskFor=r=>{
-  const key=[r.type,r.protocol,r.contentVersion,r.difficulty,r.type==='language'?[r.targetSeconds||90,r.scoringVersion||'self-rating',r.scoreInput||'unknown'].join(':'):r.type==='memory'?r.memoryScoringVersion||'self-check':''].join(':');
-  if(!taskMap.has(key)) {const task={...bare(r),id:r.taskId||'task:'+key,kind:r.type,protocolVersion:r.protocol,contentVersion:r.contentVersion,difficulty:r.difficulty,instructions:({reaction:'短材料判断：支持/不支持/信息不足',memory:r.memoryScoringVersion?'45秒阅读后自由回忆，系统按6个信息单元评分':'45秒阅读后自由回忆，再自行核对6个关键点',language:'30秒准备，结论—依据—建议表达'})[r.type],scoring:r.scoringVersion?'text-rules':r.memoryScoringVersion?'idea-units':({reaction:'answer-key',memory:'self-check',language:'self-rating'})[r.type],itemIds:r.type==='reaction'?(r.protocol==='judge-v2'?judgmentBank.map(q=>q.id):r.trials.map(t=>t.itemId)):r.type==='memory'?r.checked.map((_,i)=>r.material+'-key-'+i):(r.contentVersion==='work-topics-v1'?topics.slice(0,5):topics).map((_,i)=>'work-'+i),timing:r.type==='reaction'?{responseDeadlineSeconds:30}:r.type==='memory'?{readingSeconds:45}:{prepareSeconds:30,expressionSeconds:r.targetSeconds||90}};tasks.push(task);taskMap.set(key,task);}
+  const key=taskDefinitionKey(r);
+  if(!taskMap.has(key)) {const task={...bare(r),id:r.taskId||'task:'+key,kind:r.type,protocolVersion:r.protocol,contentVersion:r.contentVersion,difficulty:r.difficulty,instructions:({reaction:'短材料判断：支持/不支持/信息不足',memory:r.memoryScoringVersion?'45秒阅读后自由回忆，系统按6个信息单元评分':'45秒阅读后自由回忆，再自行核对6个关键点',language:'30秒准备，结论—依据—建议表达'})[r.type],scoring:r.scoringVersion?'text-rules':r.memoryScoringVersion?'idea-units':({reaction:'answer-key',memory:'self-check',language:'self-rating'})[r.type],itemIds:r.type==='reaction'?(r.protocol==='judge-v2'?judgmentBank.map(q=>q.id):r.protocol==='judge-v1'?reactionItems.map((q,i)=>q.id||'judge-'+(i+1)):r.trials.map(t=>t.itemId)):r.type==='memory'?r.checked.map((_,i)=>r.material+'-key-'+i):(r.contentVersion==='work-topics-v1'?topics.slice(0,5):topics).map((_,i)=>'work-'+i),timing:r.type==='reaction'?{responseDeadlineSeconds:30}:r.type==='memory'?{readingSeconds:45}:{prepareSeconds:30,expressionSeconds:r.targetSeconds||90}};tasks.push(task);taskMap.set(key,task);}
   return taskMap.get(key).id;
  };
  const records=ds.records,results=records.filter(r=>resultKinds.includes(r.type)).map(r=>{
   const base={...dayBase(r),taskId:taskFor(r),protocolVersion:r.protocol,contentVersion:r.contentVersion,difficulty:r.difficulty,purpose:r.purpose,startedAt:r.startedAt,endedAt:r.endedAt,actualSeconds:r.seconds??null,status:r.status,excludedFromComparison:!!r.excluded,exclusionReason:r.exclusionReason||null,device:r.device,note:nullable(r.note),kind:r.type};
   if(r.type==='reaction')return {...base,evidence:'task-measured',trials:r.trials.map(t=>({...t,response:[ 'supported','unsupported','insufficient'][t.response]||null})),summary:{correct:r.summary.correct,total:r.summary.total,accuracy:r.summary.accuracy,medianCorrectMs:r.summary.medianMs,iqrCorrectMs:r.summary.iqrMs}};
-  if(r.type==='memory')return {...base,evidence:r.memoryScoringVersion?'rule-based':'self-checked',scoringVersion:r.memoryScoringVersion||null,stage:r.stage,parentResultId:r.parentId||null,recallText:r.recall,checkedKeyIds:r.checked.flatMap((v,i)=>v?[r.material+'-key-'+i]:[]),totalKeys:6,checkedBy:r.memoryScoringVersion?'system':'user',repeatedMaterial:!!r.repeated,reviewedBeforeRecall:!!r.reviewedBeforeRecall,reviewedBeforeDelayed:!!r.reviewedBeforeDelayed,scheduledRecallAt:ds.due.find(d=>d.parentId===r.id)?.dueAt||null,scheduledFromAt:ds.due.find(d=>d.parentId===r.id)?.readAt||null,actualDelaySeconds:r.delayMinutes==null?null:r.delayMinutes*60};
+  if(r.type==='memory')return {...base,evidence:r.memoryScoringVersion?'rule-based':'self-checked',scoringVersion:r.memoryScoringVersion||null,stage:r.stage,parentResultId:r.parentId||null,recallText:r.recall,checkedKeyIds:r.checked.flatMap((v,i)=>v?[r.material+'-key-'+i]:[]),totalKeys:6,checkedBy:r.memoryScoringVersion?'system':'user',repeatedMaterial:!!r.repeated,reviewedBeforeRecall:!!r.reviewedBeforeRecall,reviewedBeforeDelayed:!!r.reviewedBeforeDelayed,scheduledRecallId:ds.due.find(d=>d.parentId===r.id)?.id||null,scheduledRecallAt:ds.due.find(d=>d.parentId===r.id)?.dueAt||null,scheduledFromAt:ds.due.find(d=>d.parentId===r.id)?.readAt||null,actualDelaySeconds:r.delayMinutes==null?null:r.delayMinutes*60};
   return {...base,evidence:r.scoringVersion?'rule-based':'subjective',promptId:r.promptId||'work-'+Math.max(0,topics.indexOf(r.topic)),topicText:r.topic||null,structure:'conclusion-evidence-action',preparationSeconds:r.preparationSeconds??null,expressionSeconds:r.seconds,text:nullable(r.text),audioAssetId:r.audioId||null,selfRating:r.scoringVersion?null:{structure:r.structure,logic:r.logic,fluency:r.fluency},autoScore:r.scoringVersion?{ruleVersion:r.scoringVersion,input:r.scoreInput,structure:r.structure,logic:r.logic,fluency:r.fluency}:null,nextImprovement:nullable(r.next)};
  });
  const bundle={schemaVersion:1,format:'human-performance-os-core',exportedAt:iso(),space:ds.source,settings:{...bare(s),nickname:nullable(s.nickname),timeZone:s.timeZone,locale:'zh-CN',theme:s.theme,reducedMotion:s.reducedMotion,onboardingCompletedAt:s.onboarded?s.onboardingCompletedAt||s.updatedAt:null,exerciseExperience:s.exerciseExperience,goals:goalsSnapshot(s),baselineResultIds:Object.fromEntries(resultKinds.map(t=>[t,records.filter(r=>r.type===t&&r.purpose==='baseline'&&validResult(r)).map(r=>r.id)])),consents:s.consents||[]},
@@ -188,8 +197,8 @@ export function fromBundle(input,space) {
   ...input.focus.map(r=>({...day(r),type:'focus',seconds:r.actualSeconds})),
   ...input.events.map(r=>({...day(r),type:'event',tag:r.tags[0]==='medication-change'?'medication':r.tags[0],note:r.description}))
  ];
- ds.plans=input.plans;ds.planItems=input.planItems;ds.planDays={};for(const p of input.planItems)if(p.status==='skipped') {ds.planDays[p.localDate]??={};ds.planDays[p.localDate][p.slot|| (p.system==='cognition'?'training':p.system)]=p.status;}
- ds.due=input.results.filter(r=>r.kind==='memory'&&r.stage==='immediate'&&r.scheduledRecallAt).map(r=>({id:r.id+'-due',parentId:r.id,material:r.contentVersion,dueAt:r.scheduledRecallAt,readAt:r.scheduledFromAt||r.endedAt||r.createdAt,reviewed:!!r.reviewedBeforeDelayed,completed:input.results.some(x=>x.parentResultId===r.id&&x.stage==='delayed'),source:space}));
+ ds.plans=input.plans;ds.planItems=input.planItems;ds.planDays=Object.create(null);for(const p of input.planItems)if(p.status==='skipped') {ds.planDays[p.localDate]??={};ds.planDays[p.localDate][p.slot|| (p.system==='cognition'?'training':p.system)]=p.status;}
+ ds.due=input.results.filter(r=>r.kind==='memory'&&r.stage==='immediate'&&r.scheduledRecallAt).map(r=>({id:r.scheduledRecallId??r.id+'-due',parentId:r.id,material:r.contentVersion,dueAt:r.scheduledRecallAt,readAt:r.scheduledFromAt||r.endedAt||r.createdAt,reviewed:!!r.reviewedBeforeDelayed,completed:input.results.some(x=>x.parentResultId===r.id&&x.stage==='delayed'),source:space}));
  ds.reviews=input.weeklyReviews.map(r=>({...r,sourceIds:r.sourceRecordIds,reflection:r.workReflection,adjustment:r.nextAdjustment}));
  ds.cycles=input.observations.map(r=>({...r,start:r.startsOn,end:r.endsOn}));
  return normalizeSpace(ds,space);

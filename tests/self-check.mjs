@@ -212,3 +212,25 @@ const resumedMemory={...autoMemory,id:'resumed-memory',taskId:undefined,status:'
 const resumedCopy=fromBundle(toBundle(normalizeSpace({...personal,records:[{...resumedMemory,source:'personal'}]},'personal',DEMO_DAY)),'personal').records[0];
 assert.equal(resumedCopy.seconds,null);assert.equal(resumedCopy.status,'interrupted');assert.equal(resumedCopy.recall,autoMemory.recall);assert.equal(comparableRecords([resumedCopy],'memory').length,0);
 console.log('通过：延迟间隔截至回忆开始、中断用时保留缺失、恢复原文与评分备份一致且排除可比趋势。');
+
+const snapshotReview={id:'snapshot-review',source:'personal',weekStart:'2026-10-05',weekEnd:'2026-10-11',sourceRecordIds:[],knownConfounderIds:[],summarySnapshot:{sleep:{value:7.5,unit:'小时',n:1,evidence:'self-reported'}}};
+for(const mutate of [x=>x.summarySnapshot.sleep.value='bad',x=>x.summarySnapshot.sleep.n=-1,x=>x.summarySnapshot.sleep.n=1.5,x=>x.summarySnapshot.sleep.unit={},x=>x.summarySnapshot.sleep.evidence='unknown',x=>x.sourceRecordIds={},x=>x.knownConfounderIds='bad',x=>x.workReflection={},x=>x.summarySnapshot=[],x=>x.weekEnd='2026-10-12']){const d=toBundle(personal),review=structuredClone(snapshotReview);mutate(review);d.weeklyReviews=[review];assert.throws(()=>fromBundle(d,'personal'));}
+const validReview=toBundle(personal);validReview.weeklyReviews=[snapshotReview];assert.equal(fromBundle(validReview,'personal').reviews[0].summarySnapshot.sleep.value,7.5);
+for(const type of ['event','state','regulation'])invalidSpace(ds=>ds.records.push({id:'bad-text',type,date:DEMO_DAY,note:{object:'not text'}}));
+for(const value of ['false',0,{}])invalidSpace(ds=>ds.records.push({...autoMemory,id:'bad-flag',taskId:undefined,source:'personal',excluded:value}));
+const focusRecord={id:'focus-check',type:'focus',date:DEMO_DAY,seconds:30,targetSeconds:60,pausedSeconds:0,distractions:0,status:'ended-early',startedAt:DEMO_DAY+'T01:00:00Z',endedAt:DEMO_DAY+'T01:00:30Z'};
+for(const mutate of [x=>x.seconds=120,x=>x.status='completed',x=>x.status='unknown',x=>x.pausedSeconds=-1,x=>x.distractions=1.5,x=>x.endedAt=DEMO_DAY+'T00:59:00Z',x=>x.startedAt='invalid'])invalidSpace(ds=>{const f=structuredClone(focusRecord);mutate(f);ds.records.push(f);});
+assert.equal(fromBundle(toBundle(normalizeSpace({...personal,records:[focusRecord]},'personal',DEMO_DAY)),'personal').records[0].seconds,30);
+for(const key of ['__proto__','constructor']){const d=toBundle(personal);d.planItems=[{id:'unsafe-key',source:'personal',localDate:key,slot:'hpAuditPollution',status:'skipped'}];assert.throws(()=>fromBundle(d,'personal'));assert.equal(Object.prototype.hpAuditPollution,undefined);assert.equal(Object.hpAuditPollution,undefined);}
+const stableDue={...due,id:'stable-due-id'},stableMemory={...memorySpace,records:[parent],due:[stableDue]};
+assert.equal(fromBundle(toBundle(stableMemory),'personal').due[0].id,stableDue.id);
+const oldDueBundle=toBundle(stableMemory);delete oldDueBundle.results[0].scheduledRecallId;assert.equal(fromBundle(oldDueBundle,'personal').due[0].id,parent.id+'-due');
+assert.equal(normalizeSpace({...stableMemory,due:[{...stableDue,completed:true}]},'personal',DEMO_DAY).due[0].completed,false);
+assert.equal(normalizeSpace({...memorySpace,due:[{...due,completed:false}]},'personal',DEMO_DAY).due[0].completed,true);
+assert.throws(()=>normalizeSpace({...memorySpace,records:[...memorySpace.records,{...delayed,id:'duplicate-delayed',taskId:undefined}]},'personal',DEMO_DAY));
+const partialFirst=normalizeSpace({...personal,records:[{...r,source:'personal',id:'partial-first',taskId:undefined,status:'aborted',trials:r.trials.slice(0,1)},{...r,source:'personal',id:'full-second',taskId:undefined}]},'personal',DEMO_DAY);
+assert.equal(toBundle(partialFirst).tasks[0].itemIds.length,6);
+console.log('通过：复盘字段矩阵、文字/标记类型、专注完整状态、危险字典键无副作用、待办ID与派生完成状态、重复回忆及完整任务定义。');
+assert.notEqual(comparisonKey({...r,contentVersion:'C',device:{input:'mouse',platform:'A|B'}}),comparisonKey({...r,contentVersion:'B|C',device:{input:'mouse',platform:'A'}}));
+const separatedTasks=normalizeSpace({...personal,records:[{...r,source:'personal',id:'key-a',taskId:undefined,protocol:'x:y',contentVersion:'z'},{...r,source:'personal',id:'key-b',taskId:undefined,protocol:'x',contentVersion:'y:z'}]},'personal',DEMO_DAY);
+assert.notEqual(separatedTasks.records[0].taskId,separatedTasks.records[1].taskId);assert.equal(toBundle(separatedTasks).tasks.length,2);
