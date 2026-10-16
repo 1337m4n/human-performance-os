@@ -172,7 +172,7 @@ export interface LanguageResult extends ResultBase {
   text: string | null;
   audioAssetId: ID | null;
   selfRating: { structure: Rating5 | null; logic: Rating5 | null; fluency: Rating5 | null } | null;
-  autoScore?: { ruleVersion: 'text-rules-v1'; input: 'typed' | 'transcript'; structure: 0 | Rating5 | null; logic: 0 | Rating5 | null; fluency: 0 | Rating5 | null } | null;
+  autoScore?: { ruleVersion: 'text-rules-v1' | 'text-rules-v2'; input: 'typed' | 'transcript'; structure: 0 | Rating5 | null; logic: 0 | Rating5 | null; fluency: 0 | Rating5 | null } | null;
   nextImprovement: string | null;
 }
 export type TrainingResult = ReactionResult | MemoryResult | LanguageResult;

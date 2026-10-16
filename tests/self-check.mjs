@@ -156,3 +156,24 @@ console.log('通过：文本规则评分、信息单元评分、反向事实/否
 assert.equal(memoryScore('预算12万元，土壤与步道17万元，种子工具3万元，维护2万元。','garden-v1').checked[2],false);
 assert.equal(memoryScore(materials[0].text,materials[0].id,'idea-units-v1').hits,6);
 const previousSystem=structuredClone(autoBundle);previousSystem.results.find(r=>r.id==='auto-memory').scoringVersion='idea-units-v1';assert.equal(fromBundle(previousSystem,'demo').records.find(r=>r.id==='auto-memory').memoryScoringVersion,'idea-units-v1');
+
+const {judgmentBank,judgmentRound,freshTrainingItems,expressionPrompts}=await import('../src/training-bank.js');
+assert.equal(judgmentBank.length,72);assert.equal(new Set(judgmentBank.map(q=>q.id)).size,72);assert.equal(new Set(judgmentBank.map(q=>q.text)).size,72);assert.equal(new Set(judgmentBank.map(q=>q.category)).size,6);
+assert.ok(judgmentBank.every(q=>q.text&&q.claim&&q.why&&[0,1,2].includes(q.answer)));
+const usedQuestions=[];
+for(let round=0;round<12;round++){const selected=judgmentRound(usedQuestions,()=>.37);assert.equal(new Set(selected.map(q=>q.id)).size,6);for(const answer of [0,1,2])assert.equal(selected.filter(q=>q.answer===answer).length,2);assert.ok(selected.every(q=>!usedQuestions.includes(q.id)));usedQuestions.push(...selected.map(q=>q.id));}
+assert.equal(new Set(usedQuestions).size,72);assert.deepEqual(new Set(judgmentRound(usedQuestions,()=>.37).map(q=>q.id)),new Set(usedQuestions.slice(0,6)));
+assert.equal(materials.length,15);assert.equal(topics.length,25);assert.equal(new Set(topics).size,25);
+assert.deepEqual(freshTrainingItems(materials,materials.slice(0,-1).map(m=>m.id)).map(m=>m.id),[materials.at(-1).id]);
+for(const m of materials){assert.equal(memoryScore(m.text,m.id).hits,6,m.id);assert.equal(memoryScore('',m.id).hits,0,m.id);}
+const newTopic=expressionPrompts[0],newText='结论：交接工作需要明确完整流程。\n依据：因为信息缺失容易导致工作延期。\n建议：每次交接前先记录负责人，再安排一次检查。';
+assert.equal(languageScore(newText,newTopic.text,'text-rules-v2').dimensions.logic.score,5);
+assert.equal(languageScore(newText,newTopic.text,'text-rules-v1').dimensions.logic.score,4);
+const oldTextBundle=structuredClone(autoBundle),oldResult=oldTextBundle.results.find(r=>r.id==='auto-language');oldResult.autoScore.ruleVersion='text-rules-v1';assert.equal(fromBundle(oldTextBundle,'demo').records.find(r=>r.id===oldResult.id).scoringVersion,'text-rules-v1');
+oldResult.text=newText;oldResult.topicText=newTopic.text;oldResult.autoScore.logic=4;assert.equal(fromBundle(oldTextBundle,'demo').records.find(r=>r.id===oldResult.id).logic,4);
+const chosen=judgmentRound([],()=>.37),bankRecord={...r,id:'bank-round',taskId:undefined,date:DEMO_DAY,startedAt:DEMO_DAY+'T16:00:00+08:00',endedAt:DEMO_DAY+'T16:01:00+08:00',protocol:'judge-v2',contentVersion:'judge-bank-v1',trials:chosen.map(q=>({itemId:q.id,response:q.answer,correct:true,responseMs:1200,timedOut:false}))};
+const bankSpace=normalizeSpace({...migrated,records:[...migrated.records,bankRecord]},'demo',DEMO_DAY),bankBundle=toBundle(bankSpace),bankTask=bankBundle.tasks.find(t=>t.id===bankBundle.results.find(r=>r.id==='bank-round').taskId);
+assert.equal(bankTask.itemIds.length,72);assert.deepEqual(fromBundle(bankBundle,'demo').records.find(r=>r.id==='bank-round').trials,bankRecord.trials);
+for(const mutate of [t=>{t.itemId='unknown';},t=>{t.correct=false;},t=>{t.response=(t.response+1)%3;}]){const bad=structuredClone(bankBundle);mutate(bad.results.find(r=>r.id==='bank-round').trials[0]);assert.throws(()=>fromBundle(bad,'demo'));}
+assert.equal(comparableRecords(bankSpace.records,'reaction').filter(r=>r.protocol==='judge-v1').length,0);
+console.log('通过：72题12轮不重、答案配比、题目ID与答案防伪、15篇材料评分、25主题、旧规则与备份兼容。');
