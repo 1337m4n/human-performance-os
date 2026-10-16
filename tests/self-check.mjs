@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import {seed,sleepMinutes,wakeVariation,reactionSummary,weekStart,weeklyFitness,points,daysEnding,dailyTasks,DEMO_DAY} from '../src/data.js';
+import {seed,sleepMinutes,sleepBedDate,wakeVariation,reactionSummary,weekStart,weeklyFitness,points,daysEnding,dailyTasks,DEMO_DAY} from '../src/data.js';
 import {csvCell} from '../src/storage.js';
 assert.equal(sleepMinutes('2026-10-12T23:30:00+08:00','2026-10-13T07:00:00+08:00'),450);
+for(const [date,bed,wake,expected] of [['2026-10-16','00:00','07:15','2026-10-16'],['2026-10-16','23:30','07:15','2026-10-15'],['2026-11-01','23:30','07:15','2026-10-31'],['2028-03-01','23:30','07:15','2028-02-29'],['2026-10-16','13:00','14:00','2026-10-16'],['2026-10-16','07:15','07:15','2026-10-16'],['','00:00','07:15',''],['2026-10-16','','07:15','']])assert.equal(sleepBedDate(date,bed,wake),expected);
+assert.equal(sleepMinutes(`${sleepBedDate('2026-10-16','00:00','07:15')}T00:00:00+08:00`,'2026-10-16T07:15:00+08:00'),435);
 assert.throws(()=>sleepMinutes('2026-10-13T08:00Z','2026-10-13T07:00Z'));
 assert.throws(()=>sleepMinutes('invalid','2026-10-13T07:00Z'));
 assert.ok(wakeVariation(['23:55','00:05','00:00'],'00:00')<5);
