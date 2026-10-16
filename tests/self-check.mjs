@@ -22,7 +22,7 @@ assert.equal(seed('personal').records.length,0);assert.equal(daysEnding(DEMO_DAY
 assert.ok(csvCell('=HYPERLINK("bad")').startsWith('"\''));
 console.log('通过：跨午夜、错误日期、起床波动、判题计分、周界限、强度/力量去重、模拟一致性、缺失值、个人空态、CSV安全。');
 const {normalizeSpace,toBundle,fromBundle,localTimeISO,todayAt,baselineRange,comparisonKey,sleepPairs,windowSummary}=await import('../src/model.js');
-const {timerElapsed,materials,shiftDay}=await import('../src/data.js');
+const {timerElapsed,memoryTiming,materials,shiftDay}=await import('../src/data.js');
 assert.equal(localTimeISO('2026-10-13','07:00','Asia/Shanghai'),'2026-10-12T23:00:00.000Z');
 assert.equal(localTimeISO('2026-10-13','07:00','UTC'),'2026-10-13T07:00:00.000Z');
 assert.equal(localTimeISO('2026-07-10','07:00','America/New_York'),'2026-07-10T11:00:00.000Z');
@@ -203,3 +203,12 @@ invalidSpace(ds=>ds.reviews.push({id:'review',weekStart:'2026-02-30',weekEnd:DEM
 invalidSpace(ds=>ds.plans=[{id:'plan',weekStart:DEMO_DAY,startsOn:DEMO_DAY,endsOn:'invalid'}]);
 invalidSpace(ds=>ds.planItems=[{id:'item',localDate:'invalid'}]);
 console.log('通过：混合时区时间排序/睡眠配对、调节计时校验、逐项力量/摄入校验、延迟回忆引用和非记录实体日期校验。');
+
+const recallStart=Date.parse('2026-10-16T01:10:00Z'),readAt='2026-10-16T01:00:00Z';
+assert.deepEqual(memoryTiming(recallStart,readAt,false,recallStart+30000),{seconds:30,delayMinutes:10});
+assert.deepEqual(memoryTiming(recallStart,readAt,true,recallStart+3*86400000),{seconds:null,delayMinutes:10});
+assert.deepEqual(memoryTiming(recallStart,null,false,recallStart+45000),{seconds:45,delayMinutes:null});
+const resumedMemory={...autoMemory,id:'resumed-memory',taskId:undefined,status:'interrupted',seconds:null};
+const resumedCopy=fromBundle(toBundle(normalizeSpace({...personal,records:[{...resumedMemory,source:'personal'}]},'personal',DEMO_DAY)),'personal').records[0];
+assert.equal(resumedCopy.seconds,null);assert.equal(resumedCopy.status,'interrupted');assert.equal(resumedCopy.recall,autoMemory.recall);assert.equal(comparableRecords([resumedCopy],'memory').length,0);
+console.log('通过：延迟间隔截至回忆开始、中断用时保留缺失、恢复原文与评分备份一致且排除可比趋势。');

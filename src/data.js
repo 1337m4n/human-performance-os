@@ -89,6 +89,7 @@ export const materials=[material,
  ...memoryBank
 ];
 export const timerElapsed=(elapsedMs,startedAt,now,targetMs)=>Math.min(targetMs,elapsedMs+(startedAt==null?0:Math.max(0,now-startedAt)));
+export const memoryTiming=(began,readAt,interrupted,now=Date.now())=>({seconds:interrupted?null:Math.max(0,Math.floor((now-began)/1000)),delayMinutes:readAt==null?null:Math.max(0,(began-Date.parse(readAt))/60000)});
 export const memoryScoringVersion='idea-units-v2';
 export const memoryEvidence=r=>r?.memoryScoringVersion?'系统信息单元评分':'历史自行核对';
 export const talkIntensity=value=>({sing:'light',talk:'moderate',few:'vigorous',unknown:null})[value]??null;
