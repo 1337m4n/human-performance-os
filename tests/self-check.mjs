@@ -177,3 +177,29 @@ assert.equal(bankTask.itemIds.length,72);assert.deepEqual(fromBundle(bankBundle,
 for(const mutate of [t=>{t.itemId='unknown';},t=>{t.correct=false;},t=>{t.response=(t.response+1)%3;}]){const bad=structuredClone(bankBundle);mutate(bad.results.find(r=>r.id==='bank-round').trials[0]);assert.throws(()=>fromBundle(bad,'demo'));}
 assert.equal(comparableRecords(bankSpace.records,'reaction').filter(r=>r.protocol==='judge-v1').length,0);
 console.log('通过：72题12轮不重、答案配比、题目ID与答案防伪、15篇材料评分、25主题、旧规则与备份兼容。');
+
+const {latest}=await import('../src/data.js');
+const earlier={...r,id:'offset-earlier',date:'2026-10-16',createdAt:'2026-10-16T08:00:00+08:00',startedAt:'2026-10-16T08:00:00+08:00',device:{input:'mouse',platform:'earlier'}};
+const later={...earlier,id:'utc-later',createdAt:'2026-10-16T07:00:00Z',startedAt:'2026-10-16T07:00:00Z',device:{input:'mouse',platform:'later'}};
+assert.equal(latest([earlier,later],'reaction').id,later.id);
+assert.deepEqual(comparableRecords([earlier,later],'reaction').map(x=>x.id),[later.id]);
+const mixedSleeps=[{...sleep,date:later.date,minutes:400,wakeAt:earlier.startedAt},{...sleep,date:later.date,minutes:500,wakeAt:later.startedAt}];
+assert.equal(sleepPairs([...mixedSleeps,{...later,startedAt:'2026-10-16T08:00:00Z'}],[later.date])[0].sleep,500);
+const invalidSpace=mutate=>{const ds=structuredClone(personal);mutate(ds);assert.throws(()=>normalizeSpace(ds,'personal',DEMO_DAY));};
+for(const mutate of [x=>x.seconds=-1,x=>x.targetSeconds=0,x=>x.seconds=121,x=>x.status='completed',x=>x.practiceKind='unknown',x=>x.startedAt='invalid'])invalidSpace(ds=>{const practice={id:'timer',type:'regulation',date:DEMO_DAY,practice:'舒适呼吸',practiceKind:'breathing',seconds:60,targetSeconds:120,status:'ended-early'};mutate(practice);ds.records.push(practice);});
+invalidSpace(ds=>ds.records.push({id:'strength',type:'fitness',date:DEMO_DAY,activity:'strength',minutes:20,intensity:null,sets:2,strengthItems:[{exercise:'深蹲',sets:7,repetitions:8,loadKg:20},{exercise:'划船',sets:-5,repetitions:8,loadKg:20}]}));
+const goodNutrition={id:'nutrition',type:'nutrition',date:DEMO_DAY,water:500,caffeineEntries:[{id:'first',type:'咖啡',consumedAt:DEMO_DAY+'T01:00:00Z',milligrams:80},{id:'second',type:'茶',consumedAt:DEMO_DAY+'T06:00:00Z',milligrams:30}]};
+for(const mutate of [x=>x.consumedAt='invalid',x=>x.milligrams=-1,x=>x.id='first',x=>x.consumedAt='2026-10-12T01:00:00Z'])invalidSpace(ds=>{const n=structuredClone(goodNutrition);mutate(n.caffeineEntries[1]);ds.records.push(n);});
+const nutritionCopy=fromBundle(toBundle(normalizeSpace({...personal,records:[goodNutrition]},'personal',DEMO_DAY)),'personal');assert.deepEqual(nutritionCopy.records[0].caffeineEntries,goodNutrition.caffeineEntries);
+const parent={...autoMemory,id:'parent-memory',source:'personal',taskId:undefined,stage:'immediate',startedAt:DEMO_DAY+'T01:00:00Z',endedAt:DEMO_DAY+'T01:01:00Z'};
+const delayed={...parent,id:'child-memory',stage:'delayed',parentId:parent.id,startedAt:DEMO_DAY+'T01:11:00Z',endedAt:DEMO_DAY+'T01:12:00Z',delayMinutes:11};
+const due={id:'due',parentId:parent.id,material:parent.material,readAt:parent.endedAt,dueAt:delayed.startedAt};
+const memorySpace=normalizeSpace({...personal,records:[parent,delayed],due:[due]},'personal',DEMO_DAY);
+assert.equal(fromBundle(toBundle(memorySpace),'personal').records.find(x=>x.id===delayed.id).parentId,parent.id);
+for(const mutate of [ds=>ds.due[0].parentId=delayed.id,ds=>ds.due[0].material='garden-v1',ds=>ds.due[0].dueAt=parent.startedAt,ds=>ds.due.push({...due,id:'duplicate-parent'}),ds=>ds.records[1].parentId='missing',ds=>ds.records[1].material='garden-v1',ds=>ds.records[1].delayMinutes=-1]){const ds=structuredClone(memorySpace);mutate(ds);assert.throws(()=>normalizeSpace(ds,'personal',DEMO_DAY));}
+invalidSpace(ds=>ds.cycles.push({id:'cycle',start:'invalid',end:DEMO_DAY}));
+invalidSpace(ds=>ds.cycles.push({id:'cycle',start:DEMO_DAY,end:shiftDay(DEMO_DAY,-1)}));
+invalidSpace(ds=>ds.reviews.push({id:'review',weekStart:'2026-02-30',weekEnd:DEMO_DAY}));
+invalidSpace(ds=>ds.plans=[{id:'plan',weekStart:DEMO_DAY,startsOn:DEMO_DAY,endsOn:'invalid'}]);
+invalidSpace(ds=>ds.planItems=[{id:'item',localDate:'invalid'}]);
+console.log('通过：混合时区时间排序/睡眠配对、调节计时校验、逐项力量/摄入校验、延迟回忆引用和非记录实体日期校验。');

@@ -25,7 +25,7 @@ export function comparisonKey(r) {
 }
 export function comparableRecords(records,type) {
  const rows=records.filter(r=>r.type===type&&validResult(r)&&(type!=='language'||r.structure!=null));
- const last=rows.sort((a,b)=>(a.startedAt||a.createdAt).localeCompare(b.startedAt||b.createdAt)).at(-1);
+ const last=rows.sort((a,b)=>Date.parse(a.startedAt||a.createdAt)-Date.parse(b.startedAt||b.createdAt)).at(-1);
  return last?rows.filter(r=>comparisonKey(r)===comparisonKey(last)):[];
 }
 export function baselineRange(records,type) {
@@ -38,7 +38,7 @@ export function sleepPairs(records,dates) {
  const reactions=comparableRecords(records,'reaction');
  return dates.map(date=>{
   const rs=reactions.filter(r=>r.date===date&&r.summary.medianMs!=null);
-  const sleep=records.filter(r=>r.type==='sleep'&&r.sleepKind!=='nap'&&r.date===date).sort((a,b)=>(b.wakeAt||b.createdAt).localeCompare(a.wakeAt||a.createdAt))[0];
+  const sleep=records.filter(r=>r.type==='sleep'&&r.sleepKind!=='nap'&&r.date===date).sort((a,b)=>Date.parse(b.wakeAt||b.createdAt)-Date.parse(a.wakeAt||a.createdAt))[0];
   const after=rs.filter(r=>!sleep?.wakeAt||Date.parse(r.startedAt||r.createdAt)>=Date.parse(sleep.wakeAt));
   if(!sleep||!after.length)return null;
   const correct=after.reduce((sum,r)=>sum+r.summary.correct,0),total=after.reduce((sum,r)=>sum+r.summary.total,0);
@@ -95,7 +95,7 @@ export function normalizeSpace(input,source,day=today(input.settings?.timeZone||
  validateSpace(ds);return ds;
 }
 export function validateSpace(ds) {
- const fail=message=>{throw new Error(message);},num=(v,min,max)=>Number.isFinite(v)&&v>=min&&v<=max,optional=(v,min,max)=>v==null||num(v,min,max);
+ const fail=message=>{throw new Error(message);},num=(v,min,max)=>Number.isFinite(v)&&v>=min&&v<=max,optional=(v,min,max)=>v==null||num(v,min,max),date=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&Number.isFinite(Date.parse(v))&&shiftDay(v,0)===v;
  const s=ds.settings;
  if(!s||!Array.isArray(s.goals)||s.goals.length<1||s.goals.length>2||s.goals.some(g=>!['processing','memory','expression','sleep','fitness','calm'].includes(g)))fail('主要目标需为1至2项。');
  try {new Intl.DateTimeFormat('en',{timeZone:s.timeZone});}catch {fail('时区无效。');}
@@ -104,13 +104,17 @@ export function validateSpace(ds) {
  const ids=new Set();
  for(const r of ds.records) {
   if(typeof r.id!=='string'||!r.id||ids.has(r.id))fail('记录ID缺失或重复。');ids.add(r.id);
-  if(!['sleep','fitness','regulation','nutrition','state','event',...resultKinds,'focus'].includes(r.type)||!/^\d{4}-\d{2}-\d{2}$/.test(r.date)||!Number.isFinite(Date.parse(r.date))||shiftDay(r.date,0)!==r.date)fail('记录类别或日期无效。');
+  if(!['sleep','fitness','regulation','nutrition','state','event',...resultKinds,'focus'].includes(r.type)||!date(r.date))fail('记录类别或日期无效。');
   try {new Intl.DateTimeFormat('en',{timeZone:r.timeZone});}catch {fail('记录时区无效。');}
   if(!Number.isFinite(Date.parse(r.createdAt)))fail('记录时间无效。');
   if(r.type==='sleep') {sleepMinutes(r.sleepAt,r.wakeAt,r.awakeMinutes,r.longSleepConfirmed);if(todayAt(r.wakeAt,r.timeZone)!==r.date)fail('睡眠需关联起床日期。');if(!optional(r.quality,1,5)||!optional(r.wakeEnergy,1,5))fail('睡眠评分需为1至5。');}
   if(r.type==='fitness'&&(!['walk','run','cycle','strength','other'].includes(r.activity)||!num(r.minutes,1,1440)||!['light','moderate','vigorous',null].includes(r.intensity)||!optional(r.sets,1,100)||!optional(r.fatigue,1,5)||!optional(r.recovery,1,5)))fail('运动记录超出允许范围。');
+  if(r.type==='fitness'&&r.strengthItems!=null&&(!Array.isArray(r.strengthItems)||r.strengthItems.some(x=>!x||typeof x.exercise!=='string'||!x.exercise.trim()||!Number.isInteger(x.sets)||!num(x.sets,1,100)||x.repetitions!=null&&(!Number.isInteger(x.repetitions)||!num(x.repetitions,1,Infinity))||!optional(x.loadKg,0,Infinity))))fail('每项力量训练的项目、组数、次数或重量无效。');
   if(r.type==='regulation'&&(!optional(r.stress,0,10)||!optional(r.tension,0,10)||!optional(r.alertness,0,10)||!optional(r.before,0,10)||!optional(r.after,0,10)))fail('调节评分需为0至10。');
+  if(r.type==='regulation'&&(r.practice||r.practiceKind!=null)&&(!['breathing','mindfulness','relaxation'].includes(r.practiceKind||'breathing')||!num(r.seconds,0,86400)||!num(r.targetSeconds??r.seconds,1,86400)||r.seconds>(r.targetSeconds??r.seconds)||!['completed','ended-early'].includes(r.status)||r.status==='completed'&&r.seconds!==(r.targetSeconds??r.seconds)||r.status==='ended-early'&&r.seconds===(r.targetSeconds??r.seconds)||r.startedAt!=null&&!Number.isFinite(Date.parse(r.startedAt))))fail('调节练习的实际时长、目标时长、状态或开始时间无效。');
   if(r.type==='nutrition'&&(!optional(r.water,0,20000)||!optional(r.caffeineMg,0,3000)||!optional(r.energy,1,5)||r.caffeineType&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(r.caffeineTime)))fail('饮食数值或咖啡因时间无效。');
+  if(r.type==='nutrition'&&r.caffeineEntries!=null){const entries=r.caffeineEntries;if(!Array.isArray(entries)||new Set(entries.map(x=>x?.id)).size!==entries.length||entries.some(x=>!x||typeof x.id!=='string'||!x.id||typeof x.type!=='string'||!x.type.trim()||!Number.isFinite(Date.parse(x.consumedAt))||todayAt(x.consumedAt,r.timeZone)!==r.date||!optional(x.milligrams,0,3000)))fail('每次咖啡因摄入的ID、饮品、日期时间或毫克数无效。');}
+  if(r.type==='nutrition'&&r.energyEntries!=null&&(!Array.isArray(r.energyEntries)||r.energyEntries.some(x=>!x||!['morning','afternoon','evening'].includes(x.period)||!num(x.rating?.value,1,5))))fail('每条历史精力记录的时段或评分无效。');
   if(resultKinds.includes(r.type)) {
    if(!['completed','interrupted','aborted'].includes(r.status)||!['baseline','regular','practice'].includes(r.purpose)||!optional(r.seconds,0,86400)||r.startedAt!=null&&!Number.isFinite(Date.parse(r.startedAt))||r.endedAt!=null&&!Number.isFinite(Date.parse(r.endedAt))||(!r.startedAt||!r.endedAt)&&!r.excluded)fail('训练会话状态或时间无效。');
    if(r.startedAt&&r.endedAt&&Date.parse(r.endedAt)<Date.parse(r.startedAt))fail('训练结束时间不能早于开始时间。');
@@ -125,7 +129,13 @@ export function validateSpace(ds) {
   if(r.type==='language'&&r.scoringVersion!=null){if(!['text-rules-v1','text-rules-v2'].includes(r.scoringVersion)||!['typed','transcript'].includes(r.scoreInput)||typeof r.text!=='string'||r.text.length>5000)fail('表达评分规则、输入来源或文字无效。');const score=languageScore(r.text,r.topic,r.scoringVersion);if(['structure','logic','fluency'].some(k=>r[k]!==score.dimensions[k].score))fail('系统评分与表达文字或评分规则不一致。');}
   if(r.type==='focus'&&(!num(r.seconds,0,86400)||!num(r.targetSeconds,1,86400)||!num(r.distractions,0,10000)))fail('专注计时记录无效。');
  }
- for(const d of ds.due)if(!Number.isFinite(Date.parse(d.dueAt))||!Number.isFinite(Date.parse(d.readAt))||ds.source!=='demo'&&!ids.has(d.parentId))fail('延迟回忆缺少原会话或到期时间。');
+ const recordsById=new Map(ds.records.map(r=>[r.id,r])),dueIds=new Set(),dueParents=new Set();
+ for(const d of ds.due){const parent=recordsById.get(d.parentId);if(typeof d.id!=='string'||!d.id||dueIds.has(d.id)||dueParents.has(d.parentId)||!Number.isFinite(Date.parse(d.dueAt))||!Number.isFinite(Date.parse(d.readAt))||Date.parse(d.dueAt)<=Date.parse(d.readAt)||!parent&&ds.source!=='demo'||parent&&(parent.type!=='memory'||parent.stage!=='immediate'||parent.material!==d.material))fail('延迟回忆需唯一关联同一材料的即时会话，且到期时间须晚于阅读时间。');dueIds.add(d.id);dueParents.add(d.parentId);}
+ for(const r of ds.records.filter(r=>r.type==='memory'&&r.stage==='delayed')){const parent=recordsById.get(r.parentId);if(!parent&&ds.source!=='demo'||parent&&(parent.type!=='memory'||parent.stage!=='immediate'||parent.material!==r.material||r.endedAt&&parent.endedAt&&Date.parse(r.endedAt)<Date.parse(parent.endedAt))||!optional(r.delayMinutes,0,Infinity))fail('延迟回忆的原会话、材料或实际间隔无效。');}
+ for(const c of ds.cycles)if(!date(c.start)||!date(c.end)||c.end<c.start)fail('观察周期的开始或结束日期无效。');
+ for(const r of ds.reviews)if(!date(r.weekStart)||!date(r.weekEnd)||r.weekEnd<r.weekStart)fail('复盘的开始或结束日期无效。');
+ for(const p of ds.plans)if(!date(p.weekStart)||!date(p.startsOn)||p.endsOn!=null&&(!date(p.endsOn)||p.endsOn<p.startsOn))fail('计划日期无效。');
+ for(const p of ds.planItems)if(!date(p.localDate))fail('计划项目日期无效。');
  return ds;
 }
 export const todayAt=(at,timeZone)=>new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(at));
